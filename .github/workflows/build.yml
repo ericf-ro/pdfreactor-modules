@@ -13,9 +13,11 @@ on:
 
 env:
   GRADLE_OPTS: -Dorg.gradle.daemon=false
-  # Tasks this repo runs in CI. Default: build everything + tests.
-  # Override per-repo if a different surface makes sense.
-  MODULE_TASKS: assemble test
+  # No Java source — this module just publishes modules.properties.
+  # `build` is a near-no-op here but keeps the workflow surface uniform
+  # across the polyrepos. `assemble test` (the starter default) fails
+  # because `test` doesn't exist without the java/java-library plugin.
+  MODULE_TASKS: build
 
 jobs:
   build:
