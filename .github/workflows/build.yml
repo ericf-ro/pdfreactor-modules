@@ -1,0 +1,66 @@
+name: Build
+
+# Per-module CI for a polyrepo PDFreactor module.
+# Customize the 'env.MODULE_TASKS' below per module if `:assemble :test`
+# isn't the right surface (e.g., for the package repo, use
+# `:assemblePackage`).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  GRADLE_OPTS: -Dorg.gradle.daemon=false
+  # Tasks this repo runs in CI. Default: build everything + tests.
+  # Override per-repo if a different surface makes sense.
+  MODULE_TASKS: assemble test
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # for AWS OIDC
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pdfreactor-build
+
+      - name: Build
+        run: |
+          ./gradlew $MODULE_TASKS || {
+            echo "First attempt failed; retrying once after 30s in case of SNAPSHOT mirror race…"
+            sleep 30
+            ./gradlew $MODULE_TASKS --refresh-dependencies
+          }
+
+      # Upload the built JAR(s) so they're inspectable from the run page
+      # without needing CodeArtifact credentials. The publish job below
+      # is still the authoritative path to consumers.
+      - name: Upload module JAR
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: module-jar
+          path: build/libs/*.jar
+          retention-days: 14
+          if-no-files-found: ignore
+
+  publish:
+    # Publish a SNAPSHOT to CodeArtifact when main is updated.
+    # Skip on PRs and manual dispatches.
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pdfreactor-build
+
+      - name: Publish SNAPSHOT
+        run: ./gradlew publish

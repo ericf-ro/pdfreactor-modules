@@ -1,0 +1,42 @@
+name: 'Set up PDFreactor build environment'
+description: |
+  AWS OIDC -> CodeArtifact token -> JDK 21 -> Gradle setup ->
+  gradlew permissions. Used by every job in build.yml that needs to
+  resolve dependencies from CodeArtifact.
+
+  Calling job MUST set:
+    permissions:
+      id-token: write   # for AWS OIDC
+      contents: read
+
+runs:
+  using: composite
+  steps:
+    - uses: aws-actions/configure-aws-credentials@v6
+      with:
+        role-to-assume: arn:aws:iam::811783768095:role/GitHubActionsCodeArtifact
+        aws-region: eu-central-1
+
+    - name: Fetch CodeArtifact token
+      shell: bash
+      run: |
+        TOKEN=$(aws codeartifact get-authorization-token \
+          --domain realobjects --domain-owner 811783768095 \
+          --query authorizationToken --output text)
+        echo "::add-mask::$TOKEN"
+        echo "CODEARTIFACT_AUTH_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+    - uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: '21'
+
+    # Pinned to v5 deliberately. v6 extracts caching into the
+    # proprietary 'gradle-actions-caching' component under Gradle's
+    # commercial Terms of Use. See CLAUDE.md TODO for the v5->v6
+    # evaluation.
+    - uses: gradle/actions/setup-gradle@v5
+
+    - name: Make gradlew executable
+      shell: bash
+      run: chmod +x gradlew

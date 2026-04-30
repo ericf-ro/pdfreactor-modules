@@ -1,0 +1,4 @@
+// settings.gradle for a PDFreactor polyrepo module.
+// Single project — no subprojects.
+
+rootProject.name = 'pdfreactor-modules'   // e.g. 'martha-core'

@@ -1,0 +1,86 @@
+// pdfreactor-modules — publishes modules.properties as a Maven artifact.
+//
+// This module's only job is to publish modules.properties so the
+// pdfreactor-package distribution step can append its content to
+// build.info. It has no Java source. The legacy 'deployModules' task
+// is preserved for parity but isn't part of the publish path.
+
+plugins {
+    id 'maven-publish'
+    id 'base'
+}
+
+group = 'com.realobjects'
+version = '1.0-SNAPSHOT'
+
+// ---------------------------------------------------------------------------
+// AWS CodeArtifact.
+// ---------------------------------------------------------------------------
+def codeartifactDomain = findProperty('codeartifactDomain') ?: 'realobjects'
+def codeartifactOwner  = findProperty('codeartifactOwner')  ?: '811783768095'
+def codeartifactRegion = findProperty('codeartifactRegion') ?: 'eu-central-1'
+def codeartifactToken  = findProperty('codeartifactToken')  ?: System.getenv('CODEARTIFACT_AUTH_TOKEN') ?: ''
+def codeartifactBase   = "https://${codeartifactDomain}-${codeartifactOwner}.d.codeartifact.${codeartifactRegion}.amazonaws.com/maven"
+
+repositories {
+    ['external', 'releases', 'snapshots', 'milestones', 'internal'].each { repo ->
+        maven {
+            name = "codeartifact-${repo}"
+            url  = "${codeartifactBase}/${repo}/"
+            credentials { username = 'aws'; password = codeartifactToken }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Publishing — ship modules.properties as a Maven artifact with extension
+// 'properties' so consumers can pull it directly without unzipping.
+// ---------------------------------------------------------------------------
+publishing {
+    publications {
+        maven(MavenPublication) {
+            groupId = group
+            artifactId = 'pdfreactor-modules'
+            version = version
+            artifact(file('modules.properties')) {
+                extension = 'properties'
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'snapshots'
+            url  = "${codeartifactBase}/snapshots/"
+            credentials { username = 'aws'; password = codeartifactToken }
+        }
+        maven {
+            name = 'releases'
+            url  = "${codeartifactBase}/releases/"
+            credentials { username = 'aws'; password = codeartifactToken }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy parity — replicates the original deployModules behavior of
+// appending modules.properties to a build.info file.
+// ---------------------------------------------------------------------------
+task deployModules {
+    description = 'Append module version information to build.info'
+
+    def modulesPropertiesFile = file('modules.properties')
+    inputs.file modulesPropertiesFile
+
+    doLast {
+        def deployDir = System.getenv('JENKINS_BUILD_DIR') ?: "${projectDir}/build"
+        def buildInfoFile = new File("${deployDir}/PDFreactor/pr-ci/internal/build.info")
+
+        if (buildInfoFile.exists()) {
+            buildInfoFile.append(modulesPropertiesFile.text)
+            buildInfoFile.append(System.lineSeparator())
+            logger.lifecycle("Appended module info to ${buildInfoFile}")
+        } else {
+            logger.warn("build.info not found at ${buildInfoFile} — skipping module metadata")
+        }
+    }
+}
